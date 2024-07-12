@@ -9,7 +9,12 @@ import torch
 import torch.distributed as tdist
 import torch.multiprocessing as mp
 
-__rank, __local_rank, __world_size, __device = 0, 0, 1, 'cuda' if torch.cuda.is_available() else 'cpu'
+__rank, __local_rank, __world_size, __device = (
+    0,
+    0,
+    1,
+    "cuda" if torch.cuda.is_available() else "cpu",
+)
 __initialized = False
 
 
@@ -17,36 +22,43 @@ def initialized():
     return __initialized
 
 
-def initialize(fork=False, backend='nccl', gpu_id_if_not_distibuted=0, timeout=30):
+def initialize(fork=False, backend="nccl", gpu_id_if_not_distibuted=0, timeout=30):
     global __device
     if not torch.cuda.is_available():
-        print(f'[dist initialize] cuda is not available, use cpu instead', file=sys.stderr)
+        print(
+            f"[dist initialize] cuda is not available, use cpu instead", file=sys.stderr
+        )
         return
-    elif 'RANK' not in os.environ:
+    elif "RANK" not in os.environ:
         torch.cuda.set_device(gpu_id_if_not_distibuted)
         __device = torch.empty(1).cuda().device
-        print(f'[dist initialize] env variable "RANK" is not set, use {__device} as the device', file=sys.stderr)
+        print(
+            f'[dist initialize] env variable "RANK" is not set, use {__device} as the device',
+            file=sys.stderr,
+        )
         return
     # then 'RANK' must exist
-    global_rank, num_gpus = int(os.environ['RANK']), torch.cuda.device_count()
+    global_rank, num_gpus = int(os.environ["RANK"]), torch.cuda.device_count()
     local_rank = global_rank % num_gpus
     torch.cuda.set_device(local_rank)
-    
+
     # ref: https://github.com/open-mmlab/mmcv/blob/master/mmcv/runner/dist_utils.py#L29
     if mp.get_start_method(allow_none=True) is None:
-        method = 'fork' if fork else 'spawn'
-        print(f'[dist initialize] mp method={method}')
+        method = "fork" if fork else "spawn"
+        print(f"[dist initialize] mp method={method}")
         mp.set_start_method(method)
-    tdist.init_process_group(backend=backend, timeout=datetime.timedelta(seconds=timeout*60))
-    
+    tdist.init_process_group(
+        backend=backend, timeout=datetime.timedelta(seconds=timeout * 60)
+    )
+
     global __rank, __local_rank, __world_size, __initialized
     __local_rank = local_rank
     __rank, __world_size = tdist.get_rank(), tdist.get_world_size()
     __device = torch.empty(1).cuda().device
     __initialized = True
-    
-    assert tdist.is_initialized(), 'torch.distributed is not initialized!'
-    print(f'[lrk={get_local_rank()}, rk={get_rank()}]')
+
+    assert tdist.is_initialized(), "torch.distributed is not initialized!"
+    print(f"[lrk={get_local_rank()}, rk={get_rank()}]")
 
 
 def get_rank():
@@ -66,7 +78,8 @@ def get_device():
 
 
 def set_gpu_id(gpu_id: int):
-    if gpu_id is None: return
+    if gpu_id is None:
+        return
     global __device
     if isinstance(gpu_id, (str, int)):
         torch.cuda.set_device(int(gpu_id))
@@ -119,26 +132,28 @@ def allgather(t: torch.Tensor, cat=True) -> Union[List[torch.Tensor], torch.Tens
     return ls
 
 
-def allgather_diff_shape(t: torch.Tensor, cat=True) -> Union[List[torch.Tensor], torch.Tensor]:
+def allgather_diff_shape(
+    t: torch.Tensor, cat=True
+) -> Union[List[torch.Tensor], torch.Tensor]:
     if __initialized:
         if not t.is_cuda:
             t = t.cuda()
-        
+
         t_size = torch.tensor(t.size(), device=t.device)
         ls_size = [torch.empty_like(t_size) for _ in range(__world_size)]
         tdist.all_gather(ls_size, t_size)
-        
+
         max_B = max(size[0].item() for size in ls_size)
         pad = max_B - t_size[0].item()
         if pad:
             pad_size = (pad, *t.size()[1:])
             t = torch.cat((t, t.new_empty(pad_size)), dim=0)
-        
+
         ls_padded = [torch.empty_like(t) for _ in range(__world_size)]
         tdist.all_gather(ls_padded, t)
         ls = []
         for t, size in zip(ls_padded, ls_size):
-            ls.append(t[:size[0].item()])
+            ls.append(t[: size[0].item()])
     else:
         ls = [t]
     if cat:
@@ -156,10 +171,12 @@ def broadcast(t: torch.Tensor, src_rank) -> None:
             tdist.broadcast(t, src=src_rank)
 
 
-def dist_fmt_vals(val: float, fmt: Union[str, None] = '%.2f') -> Union[torch.Tensor, List]:
+def dist_fmt_vals(
+    val: float, fmt: Union[str, None] = "%.2f"
+) -> Union[torch.Tensor, List]:
     if not initialized():
         return torch.tensor([val]) if fmt is None else [fmt % val]
-    
+
     ts = torch.zeros(__world_size)
     ts[__rank] = val
     allreduce(ts)
@@ -171,26 +188,28 @@ def dist_fmt_vals(val: float, fmt: Union[str, None] = '%.2f') -> Union[torch.Ten
 def master_only(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        force = kwargs.pop('force', False)
+        force = kwargs.pop("force", False)
         if force or is_master():
             ret = func(*args, **kwargs)
         else:
             ret = None
         barrier()
         return ret
+
     return wrapper
 
 
 def local_master_only(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        force = kwargs.pop('force', False)
+        force = kwargs.pop("force", False)
         if force or is_local_master():
             ret = func(*args, **kwargs)
         else:
             ret = None
         barrier()
         return ret
+
     return wrapper
 
 
@@ -203,6 +222,7 @@ def for_visualize(func):
         else:
             ret = None
         return ret
+
     return wrapper
 
 
