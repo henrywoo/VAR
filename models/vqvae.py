@@ -1,7 +1,7 @@
 """
 References:
-- VectorQuantizer2: https://github.com/CompVis/taming-transformers/blob/3ba01b241669f5ade541ce990f7650a3b8f65318/taming/modules/vqvae/quantize.py#L110
-- GumbelQuantize: https://github.com/CompVis/taming-transformers/blob/3ba01b241669f5ade541ce990f7650a3b8f65318/taming/modules/vqvae/quantize.py#L213
+- VectorQuantizer2: https://github.com/CompVis/taming-transformers/blob/3ba01b241669f5ade541ce990f7650a3b8f65318/taming/modules/vqvae/quantize.py#L213
+- GumbelQuantize: https://github.com/CompVis/taming-transformers/blob/3ba01b241669f5ade541ce990f7650a3b8f65318/taming/modules/vqvae/quantize.py#L110
 - VQVAE (VQModel): https://github.com/CompVis/stable-diffusion/blob/21f890f9da3cfbeaba8e2ac3c425ee9e998d5229/ldm/models/autoencoder.py#L14
 """
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
@@ -84,11 +84,12 @@ class VQVAE(nn.Module):
 
     # ===================== `forward` is only used in VAE training =====================
     def forward(self, inp, ret_usages=False):  # -> rec_B3HW, idx_N, loss
-        VectorQuantizer2.forward
-        f_hat, usages, vq_loss = self.quantize(
-            self.quant_conv(self.encoder(inp)), ret_usages=ret_usages
-        )
-        return self.decoder(self.post_quant_conv(f_hat)), usages, vq_loss
+        # VectorQuantizer2.forward
+        t0 = self.encoder(inp)
+        f_hat, usages, vq_loss = self.quantize(self.quant_conv(t0), ret_usages=ret_usages)
+        t1 = self.post_quant_conv(f_hat)
+        t2 = self.decoder(t1)
+        return t2, usages, vq_loss
 
     # ===================== `forward` is only used in VAE training =====================
 
@@ -169,3 +170,61 @@ class VQVAE(nn.Module):
         return super().load_state_dict(
             state_dict=state_dict, strict=strict, assign=assign
         )
+
+
+if __name__ == '__main__':
+    import matplotlib.pyplot as plt
+    import torch
+    from skimage import data
+    from skimage.transform import resize
+    from hiq import print_model
+
+    # 加载预训练的权重文件
+    pretrained_weights_path = 'vae_ch160v4096z32.pth'
+
+    # 加载 astronaut 图像并预处理
+    astronaut = data.astronaut()
+    astronaut_resized = resize(astronaut, (256, 256), anti_aliasing=True)
+    astronaut_resized = astronaut_resized.transpose(2, 0, 1)  # 转换为 CHW 格式
+    astronaut_resized = torch.tensor(astronaut_resized, dtype=torch.float32).unsqueeze(0)  # 增加 batch 维度
+
+    # 加载预训练的权重文件
+    pretrained_weights_path = 'vae_ch160v4096z32.pth'
+
+    # 加载 astronaut 图像并预处理
+    astronaut = data.astronaut()
+    astronaut_resized = resize(astronaut, (256, 256), anti_aliasing=True)
+    astronaut_resized = astronaut_resized.transpose(2, 0, 1)  # 转换为 CHW 格式
+    astronaut_resized = torch.tensor(astronaut_resized, dtype=torch.float32).unsqueeze(0)  # 增加 batch 维度
+
+    # 实例化 VQVAE 模型，使用与预训练模型匹配的参数
+    vqvae = VQVAE(ch=160)
+
+    # 加载预训练权重，设置 strict=False
+    vqvae.load_state_dict(torch.load(pretrained_weights_path), strict=True)
+
+    # 将模型移动到 GPU，如果可用的话
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    vqvae.to(device)
+    print_model(vqvae)
+
+    astronaut_resized = astronaut_resized.to(device)
+
+    # 前向传递
+    with torch.no_grad():
+        reconstructed, _, _ = vqvae(astronaut_resized)
+
+    # 将图像从 GPU 移动回 CPU
+    reconstructed = reconstructed.squeeze().cpu().numpy()
+    reconstructed = reconstructed.transpose(1, 2, 0)  # 转换为 HWC 格式
+
+    # 显示原始图像和重建图像
+    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+    axes[0].imshow(data.astronaut())
+    axes[0].set_title("Original Image")
+    axes[0].axis("off")
+    axes[1].imshow(reconstructed)
+    axes[1].set_title("Reconstructed Image")
+    axes[1].axis("off")
+    plt.savefig("astronaut.png")
+    plt.show()

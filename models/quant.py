@@ -100,7 +100,7 @@ class VectorQuantizer2(nn.Module):
             vocab_hit_V = torch.zeros(
                 self.vocab_size, dtype=torch.float, device=f_BChw.device
             )
-            SN = len(self.v_patch_nums)
+            SN = len(self.v_patch_nums)  # Scale Number
             for si, pn in enumerate(self.v_patch_nums):  # from small to large
                 # find the nearest embedding
                 if self.using_znorm:
@@ -150,7 +150,9 @@ class VectorQuantizer2(nn.Module):
                     if (si != SN - 1)
                     else self.embedding(idx_Bhw).permute(0, 3, 1, 2).contiguous()
                 )
-                h_BChw = self.quant_resi[si / (SN - 1)](h_BChw)
+                ti = si / (SN - 1)
+                t0 = self.quant_resi[ti]
+                h_BChw = t0(h_BChw)
                 f_hat = f_hat + h_BChw
                 f_rest -= h_BChw
 
@@ -164,19 +166,23 @@ class VectorQuantizer2(nn.Module):
                         self.ema_vocab_hit_SV[si].mul_(0.99).add_(hit_V.mul(0.01))
                     self.record_hit += 1
                 vocab_hit_V.add_(hit_V)
-                mean_vq_loss += F.mse_loss(f_hat.data, f_BChw).mul_(
-                    self.beta
-                ) + F.mse_loss(f_hat, f_no_grad)
+                t1 = F.mse_loss(f_hat.data, f_BChw)
+                t2 = F.mse_loss(f_hat, f_no_grad)
+                mean_vq_loss += t1.mul_(self.beta) + t2
 
             mean_vq_loss *= 1.0 / SN
-            f_hat = (f_hat.data - f_no_grad).add_(f_BChw)
+            residual = f_hat.data - f_no_grad
+            f_hat = residual.add_(f_BChw)
 
-        margin = (
-            tdist.get_world_size()
-            * (f_BChw.numel() / f_BChw.shape[1])
-            / self.vocab_size
-            * 0.08
-        )
+        if tdist.is_initialized():
+            margin = (
+                tdist.get_world_size()
+                * (f_BChw.numel() / f_BChw.shape[1])
+                / self.vocab_size
+                * 0.08
+            )
+        else:
+            margin = f_BChw.numel() / f_BChw.shape[1] / self.vocab_size * 0.08
         # margin = pn*pn / 100
         if ret_usages:
             usages = [
@@ -412,3 +418,68 @@ class PhiNonShared(nn.ModuleList):
 
     def extra_repr(self) -> str:
         return f"ticks={self.ticks}"
+
+
+if __name__ == "__main__":
+    from einops import rearrange
+
+    class MultiScaleVectorQuantizer(nn.Module):
+        def __init__(self, n_e, e_dim, beta, K, resolutions):
+            super().__init__()
+            self.n_e = n_e
+            self.e_dim = e_dim
+            self.beta = beta
+            self.K = K
+            self.resolutions = resolutions
+
+            self.embedding = nn.Embedding(self.n_e, self.e_dim)
+            self.embedding.weight.data.uniform_(-1.0 / self.n_e, 1.0 / self.n_e)
+
+            self.phi_layers = nn.ModuleList([Phi(e_dim, 0.5) for _ in range(K)])
+
+        def forward(self, x):
+            z = x
+            token_maps = []
+            for k in range(self.K):
+                # Interpolate to the desired resolution
+                res = self.resolutions[k]
+                z_resized = F.interpolate(z, size=res, mode='bilinear', align_corners=True)
+
+                # Flatten and calculate distances
+                z_flattened = rearrange(z_resized, 'b c h w -> (b h w) c')
+                d = torch.sum(z_flattened ** 2, dim=1, keepdim=True) + \
+                    torch.sum(self.embedding.weight ** 2, dim=1) - 2 * \
+                    torch.einsum('bd,dn->bn', z_flattened, rearrange(self.embedding.weight, 'n d -> d n'))
+
+                # Find closest embeddings
+                min_encoding_indices = torch.argmin(d, dim=1)
+                z_q = self.embedding(min_encoding_indices).view_as(z_resized)
+
+                # Store token map
+                token_maps.append(min_encoding_indices.view(x.size(0), *res))
+
+                # Residual adjustment
+                z = z - self.phi_layers[k](z_q)
+
+            return token_maps
+
+        def decode(self, token_maps):
+            z_reconstructed = torch.zeros_like(token_maps[0], dtype=self.embedding.weight.dtype).to(
+                self.embedding.weight.device)
+            for k in range(self.K):
+                indices = token_maps[k].view(-1)
+                z_q = self.embedding(indices).view(token_maps[k].size(0), self.e_dim, *self.resolutions[k])
+                z_q = F.interpolate(z_q, size=self.resolutions[-1], mode='bilinear', align_corners=True)
+                z_reconstructed = z_reconstructed + self.phi_layers[k](z_q)
+
+            return z_reconstructed
+
+
+    # Example usage:
+    resolutions = [(16, 16), (32, 32), (64, 64)]
+    n_e, e_dim, beta, K = 512, 64, 0.25, len(resolutions)
+    vq = MultiScaleVectorQuantizer(n_e, e_dim, beta, K, resolutions)
+
+    x = torch.randn(8, 64, 128, 128)
+    token_maps = vq(x)
+    reconstructed = vq.decode(token_maps)

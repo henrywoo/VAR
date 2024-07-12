@@ -154,6 +154,7 @@ def build_everything(args: arg_util.Args):
     #print(f"[INIT] VAR model = {var_wo_ddp}\n\n")
     from hiq import print_model
     print_model(var_wo_ddp)
+    print_model(vae_local)
     count_p = lambda m: f"{sum(p.numel() for p in m.parameters()) / 1e6:.2f}"
     print(
         f"[INIT][#para] "
@@ -506,9 +507,7 @@ def train_one_ep(
         )
         args.cur_lr, args.cur_wd = max_tlr, max_twd
 
-        if (
-                args.pg
-        ):  # default: args.pg == 0.0, means no progressive training, won't get into this
+        if args.pg:  # default: args.pg == 0.0, means no progressive training, won't get into this
             if g_it <= wp_it:
                 prog_si = args.pg0
             elif g_it >= max_it * args.pg:
