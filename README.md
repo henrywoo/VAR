@@ -130,6 +130,12 @@ torchrun --nproc_per_node=8 --nnodes=... --node_rank=... --master_addr=... --mas
 A folder named `local_output` will be created to save the checkpoints and logs.
 You can monitor the training process by checking the logs in `local_output/log.txt` and `local_output/stdout.txt`, or using `tensorboard --logdir=local_output/`.
 
+- Single GPU with batch size 16 in 24GB GPU
+
+```python
+python train.py --depth=16 --bs=16 --ep=200 --fp16=1 --alng=1e-3 --wpe=0.1
+```
+
 If your experiment is interrupted, just rerun the command, and the training will **automatically resume** from the last checkpoint in `local_output/ckpt*.pth` (see [utils/misc.py#L344-L357](utils/misc.py#L344-L357)).
 
 ## Sampling & Zero-shot Inference

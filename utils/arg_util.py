@@ -303,10 +303,11 @@ def init_dist_and_get_args():
         args.pg = 0.8
         args.pg0 = 1
     else:
-        if args.data_path == "/path/to/imagenet":
+        '''if args.data_path == "/path/to/imagenet":
             raise ValueError(
                 f'{"*"*40}  please specify --data_path=/path/to/imagenet  {"*"*40}'
-            )
+            )'''
+        pass
 
     # warn args.extra_args
     if len(args.extra_args) > 0:

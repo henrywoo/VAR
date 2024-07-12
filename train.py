@@ -94,7 +94,7 @@ def build_everything(args: arg_util.Args):
         ld_train = iter(ld_train)
         # noinspection PyArgumentList
         print(
-            f"     [dataloader multi processing](*) finished! ({time.time()-stt:.2f}s)",
+            f"     [dataloader multi processing](*) finished! ({time.time() - stt:.2f}s)",
             flush=True,
             clean=True,
         )
@@ -151,19 +151,21 @@ def build_everything(args: arg_util.Args):
         broadcast_buffers=False,
     )
 
-    print(f"[INIT] VAR model = {var_wo_ddp}\n\n")
-    count_p = lambda m: f"{sum(p.numel() for p in m.parameters())/1e6:.2f}"
+    #print(f"[INIT] VAR model = {var_wo_ddp}\n\n")
+    from hiq import print_model
+    print_model(var_wo_ddp)
+    count_p = lambda m: f"{sum(p.numel() for p in m.parameters()) / 1e6:.2f}"
     print(
         f"[INIT][#para] "
         + ", ".join(
             [
                 f"{k}={count_p(m)}"
                 for k, m in (
-                    ("VAE", vae_local),
-                    ("VAE.enc", vae_local.encoder),
-                    ("VAE.dec", vae_local.decoder),
-                    ("VAE.quant", vae_local.quantize),
-                )
+                ("VAE", vae_local),
+                ("VAE.enc", vae_local.encoder),
+                ("VAE.dec", vae_local.decoder),
+                ("VAE.quant", vae_local.quantize),
+            )
             ]
         )
     )
@@ -264,7 +266,7 @@ def build_everything(args: arg_util.Args):
         tb_lg.flush()
         tb_lg.close()
         if isinstance(sys.stdout, misc.SyncPrint) and isinstance(
-            sys.stderr, misc.SyncPrint
+                sys.stderr, misc.SyncPrint
         ):
             sys.stdout.close(), sys.stderr.close()
         exit(0)
@@ -343,7 +345,7 @@ def main_training():
             acc_tail,
             grad_norm,
         )
-        args.cur_ep = f"{ep+1}/{args.ep}"
+        args.cur_ep = f"{ep + 1}/{args.ep}"
         args.remain_time, args.finish_time = remain_time, finish_time
 
         AR_ep_loss = dict(
@@ -441,14 +443,14 @@ def main_training():
 
 
 def train_one_ep(
-    ep: int,
-    is_first_ep: bool,
-    start_it: int,
-    args: arg_util.Args,
-    tb_lg: misc.TensorboardLogger,
-    ld_or_itrt,
-    iters_train: int,
-    trainer,
+        ep: int,
+        is_first_ep: bool,
+        start_it: int,
+        args: arg_util.Args,
+        tb_lg: misc.TensorboardLogger,
+        ld_or_itrt,
+        iters_train: int,
+        trainer,
 ):
     # import heavy packages after Dataloader object creation
     from trainer import VARTrainer
@@ -476,7 +478,7 @@ def train_one_ep(
     g_it, max_it = ep * iters_train, args.ep * iters_train
 
     for it, (inp, label) in me.log_every(
-        start_it, iters_train, ld_or_itrt, 30 if iters_train > 8000 else 5, header
+            start_it, iters_train, ld_or_itrt, 30 if iters_train > 8000 else 5, header
     ):
         g_it = ep * iters_train + it
         if it < start_it:
@@ -487,7 +489,7 @@ def train_one_ep(
         inp = inp.to(args.device, non_blocking=True)
         label = label.to(args.device, non_blocking=True)
 
-        args.cur_it = f"{it+1}/{iters_train}"
+        args.cur_it = f"{it + 1}/{iters_train}"
 
         wp_it = args.wp * iters_train
         min_tlr, max_tlr, min_twd, max_twd = lr_wd_annealing(
@@ -505,7 +507,7 @@ def train_one_ep(
         args.cur_lr, args.cur_wd = max_tlr, max_twd
 
         if (
-            args.pg
+                args.pg
         ):  # default: args.pg == 0.0, means no progressive training, won't get into this
             if g_it <= wp_it:
                 prog_si = args.pg0
@@ -573,6 +575,6 @@ if __name__ == "__main__":
     finally:
         dist.finalize()
         if isinstance(sys.stdout, misc.SyncPrint) and isinstance(
-            sys.stderr, misc.SyncPrint
+                sys.stderr, misc.SyncPrint
         ):
             sys.stdout.close(), sys.stderr.close()

@@ -8,7 +8,7 @@ from torchvision.transforms import InterpolationMode, transforms
 def normalize_01_into_pm1(x):  # normalize x from [0, 1] to [-1, 1] by (x*2) - 1
     return x.add(x).add_(-1)
 
-
+from hiq.cv_torch import get_cv_dataset, DS_PATH_IMAGENET1K, DS_PATH_IMAGENETTE
 def build_dataset(
     data_path: str,
     final_reso: int,
@@ -39,7 +39,10 @@ def build_dataset(
     train_aug, val_aug = transforms.Compose(train_aug), transforms.Compose(val_aug)
 
     # build dataset
-    train_set = DatasetFolder(
+
+    train_set = get_cv_dataset(DS_PATH_IMAGENETTE, transform=train_aug, split='train')
+    val_set = get_cv_dataset(DS_PATH_IMAGENETTE, transform=val_aug, split='validation', shuffle=False)
+    '''train_set = DatasetFolder(
         root=osp.join(data_path, "train"),
         loader=pil_loader,
         extensions=IMG_EXTENSIONS,
@@ -50,7 +53,7 @@ def build_dataset(
         loader=pil_loader,
         extensions=IMG_EXTENSIONS,
         transform=val_aug,
-    )
+    )'''
     num_classes = 1000
     print(f"[Dataset] {len(train_set)=}, {len(val_set)=}, {num_classes=}")
     print_aug(train_aug, "[train]")
