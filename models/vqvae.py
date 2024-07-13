@@ -9,8 +9,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 import torch
 import torch.nn as nn
 
-from .basic_vae import Decoder, Encoder
-from .quant import VectorQuantizer2
+from basic_vae import Decoder, Encoder
+from quant import VectorQuantizer2
 
 
 class VQVAE(nn.Module):
@@ -175,56 +175,116 @@ class VQVAE(nn.Module):
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
     import torch
-    from skimage import data
-    from skimage.transform import resize
     from hiq import print_model
+    from torchmetrics.image.fid import FrechetInceptionDistance
+    from torchvision import transforms
+    from hiq.cv_torch import get_cv_dataset, DS_PATH_IMAGENET1K
+    from tqdm import tqdm
+
+
+    # 定义去归一化变换
+    def denormalize(tensor, mean, std):
+        for t, m, s in zip(tensor, mean, std):
+            t.mul_(s).add_(m)
+        return tensor
+
+
+    # 数据预处理和数据加载
+    transform = transforms.Compose([
+        transforms.RandomHorizontalFlip(p=0.3),
+        transforms.ToTensor(),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    ])
+
+    loader_params = dict(
+        shuffle=False,
+        drop_last=True,
+        pin_memory=True,
+    )
+
+    dataloader = get_cv_dataset(path=DS_PATH_IMAGENET1K,
+                                image_size=256,
+                                split='validation',
+                                batch_size=50,
+                                num_workers=5,
+                                transform=transform,
+                                return_type="pair",
+                                return_loader=True,
+                                convert_rgb=True,
+                                **loader_params
+                                )
 
     # 加载预训练的权重文件
     pretrained_weights_path = 'vae_ch160v4096z32.pth'
-
-    # 加载 astronaut 图像并预处理
-    astronaut = data.astronaut()
-    astronaut_resized = resize(astronaut, (256, 256), anti_aliasing=True)
-    astronaut_resized = astronaut_resized.transpose(2, 0, 1)  # 转换为 CHW 格式
-    astronaut_resized = torch.tensor(astronaut_resized, dtype=torch.float32).unsqueeze(0)  # 增加 batch 维度
-
-    # 加载预训练的权重文件
-    pretrained_weights_path = 'vae_ch160v4096z32.pth'
-
-    # 加载 astronaut 图像并预处理
-    astronaut = data.astronaut()
-    astronaut_resized = resize(astronaut, (256, 256), anti_aliasing=True)
-    astronaut_resized = astronaut_resized.transpose(2, 0, 1)  # 转换为 CHW 格式
-    astronaut_resized = torch.tensor(astronaut_resized, dtype=torch.float32).unsqueeze(0)  # 增加 batch 维度
 
     # 实例化 VQVAE 模型，使用与预训练模型匹配的参数
     vqvae = VQVAE(ch=160)
 
-    # 加载预训练权重，设置 strict=False
+    # 加载预训练权重，设置 strict=True
     vqvae.load_state_dict(torch.load(pretrained_weights_path), strict=True)
 
     # 将模型移动到 GPU，如果可用的话
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     vqvae.to(device)
+    vqvae.eval()
     print_model(vqvae)
 
-    astronaut_resized = astronaut_resized.to(device)
+    # 准备 FID 计算器
+    fid = FrechetInceptionDistance(feature=2048)
 
-    # 前向传递
-    with torch.no_grad():
-        reconstructed, _, _ = vqvae(astronaut_resized)
+    # 计算 FID 分数
+    transform_fid = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.Resize((299, 299)),
+        transforms.ToTensor(),
+    ])
 
-    # 将图像从 GPU 移动回 CPU
-    reconstructed = reconstructed.squeeze().cpu().numpy()
-    reconstructed = reconstructed.transpose(1, 2, 0)  # 转换为 HWC 格式
+    # 遍历 dataloader 中的所有批次
+    for batch, _ in tqdm(dataloader, desc="Processing batches", colour="09ff23"):
+        batch = batch.to(device)
 
-    # 显示原始图像和重建图像
+        # 前向传递
+        with torch.no_grad():
+            reconstructed_batch, _, _ = vqvae(batch)
+
+        # 去归一化
+        batch = denormalize(batch, mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
+        reconstructed_batch = denormalize(reconstructed_batch, mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
+
+        # 将值限制在 [0, 1] 范围内，然后转换为 uint8 类型
+        batch = torch.clamp(batch, 0, 1) * 255
+        reconstructed_batch = torch.clamp(reconstructed_batch, 0, 1) * 255
+
+        # 将原始和重建图像转换为 uint8 类型
+        batch_uint8 = batch.byte().cpu().numpy().transpose(0, 2, 3, 1)
+        reconstructed_batch_uint8 = reconstructed_batch.byte().cpu().numpy().transpose(0, 2, 3, 1)
+
+        # 计算并更新 FID 分数
+        for i in range(batch.size(0)):
+            original_image_fid = transform_fid(batch_uint8[i]).unsqueeze(0)
+            reconstructed_image_fid = transform_fid(reconstructed_batch_uint8[i]).unsqueeze(0)
+            fid.update(original_image_fid.type(torch.uint8), real=True)
+            fid.update(reconstructed_image_fid.type(torch.uint8), real=False)
+
+    fid_score = fid.compute()
+
+    print(f"Reconstruction FID score: {fid_score:.2f}")
+
+    # 显示一个原始图像和对应的重建图像示例
+    original_image_example = batch_uint8[0]
+    reconstructed_image_example = reconstructed_batch_uint8[0]
+
     fig, axes = plt.subplots(1, 2, figsize=(10, 5))
-    axes[0].imshow(data.astronaut())
+    axes[0].imshow(original_image_example)
     axes[0].set_title("Original Image")
     axes[0].axis("off")
-    axes[1].imshow(reconstructed)
-    axes[1].set_title("Reconstructed Image")
+    axes[1].imshow(reconstructed_image_example)
+    axes[1].set_title(f"Reconstructed Image\nFID: {fid_score:.2f}")
     axes[1].axis("off")
     plt.savefig("astronaut.png")
     plt.show()
+
+'''
+- Imagenette:
+Reconstruction FID score: 0.76
+'''
