@@ -145,7 +145,9 @@ class VARTrainer(object):
         with self.var_opt.amp_ctx:
             #self.var_wo_ddp.forward
             logits_BLV = self.var(label_B, x_BLCv_wo_first_l)
-            loss = self.train_loss(logits_BLV.view(-1, V), gt_BL.view(-1)).view(B, -1)
+            t0 = logits_BLV.view(-1, V)
+            t1 = gt_BL.view(-1)
+            loss = self.train_loss(t0, t1).view(B, -1)
             if prog_si >= 0:  # in progressive training
                 bg, ed = self.begin_ends[prog_si]
                 assert logits_BLV.shape[1] == gt_BL.shape[1] == ed
