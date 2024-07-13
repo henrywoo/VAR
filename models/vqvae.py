@@ -178,7 +178,7 @@ if __name__ == '__main__':
     from hiq import print_model
     from torchmetrics.image.fid import FrechetInceptionDistance
     from torchvision import transforms
-    from hiq.cv_torch import get_cv_dataset, DS_PATH_IMAGENET1K
+    from hiq.cv_torch import get_cv_dataset, DS_PATH_IMAGENET1K, DS_PATH_LSUN_CHURCH
     from tqdm import tqdm
 
 
@@ -202,7 +202,7 @@ if __name__ == '__main__':
         pin_memory=True,
     )
 
-    dataloader = get_cv_dataset(path=DS_PATH_IMAGENET1K,
+    dataloader = get_cv_dataset(path=DS_PATH_LSUN_CHURCH,
                                 image_size=256,
                                 split='validation',
                                 batch_size=100,
@@ -240,7 +240,7 @@ if __name__ == '__main__':
     ])
 
     # 遍历 dataloader 中的所有批次
-    for batch, _ in tqdm(dataloader, desc="Processing batches", colour="09ff23"):
+    for batch, _ in tqdm(dataloader, desc="Processing batches", colour="BLUE"):
         batch = batch.to(device)
 
         # 前向传递
@@ -285,7 +285,7 @@ if __name__ == '__main__':
     plt.show()
 
 '''
-- Imagenette:
+- Imagenette validation:
 Reconstruction FID score: 0.76
 - Imagenet1K 50K:
 Reconstruction FID score: 0.48
