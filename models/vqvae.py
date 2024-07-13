@@ -204,8 +204,8 @@ if __name__ == '__main__':
 
     dataloader = get_cv_dataset(path=DS_PATH_LSUN_CHURCH,
                                 image_size=256,
-                                split='test',
-                                batch_size=50,
+                                split='validation',
+                                batch_size=100,
                                 num_workers=5,
                                 transform=transform,
                                 return_type="pair",
@@ -287,4 +287,6 @@ if __name__ == '__main__':
 '''
 - Imagenette validation:
 Reconstruction FID score: 0.76
+- Imagenet1K 50K:
+Reconstruction FID score: 0.48
 '''
