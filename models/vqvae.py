@@ -205,7 +205,7 @@ if __name__ == '__main__':
     dataloader = get_cv_dataset(path=DS_PATH_IMAGENET1K,
                                 image_size=256,
                                 split='validation',
-                                batch_size=50,
+                                batch_size=100,
                                 num_workers=5,
                                 transform=transform,
                                 return_type="pair",
@@ -287,4 +287,6 @@ if __name__ == '__main__':
 '''
 - Imagenette:
 Reconstruction FID score: 0.76
+- Imagenet1K 50K:
+Reconstruction FID score: 0.48
 '''
