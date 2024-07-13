@@ -130,9 +130,7 @@ class VARTrainer(object):
         self.prog_it += 1
         prog_wp = max(min(self.prog_it / prog_wp_it, 1), 0.01)
         if self.first_prog:
-            prog_wp = (
-                1  # no prog warmup at first prog stage, as it's already solved in wp
-            )
+            prog_wp = 1  # no prog warmup at first prog stage, as it's already solved in wp
         if prog_si == len(self.patch_nums) - 1:
             prog_si = -1  # max prog, as if no prog
 
@@ -145,7 +143,7 @@ class VARTrainer(object):
         x_BLCv_wo_first_l: Ten = self.quantize_local.idxBl_to_var_input(gt_idx_Bl)
 
         with self.var_opt.amp_ctx:
-            self.var_wo_ddp.forward
+            #self.var_wo_ddp.forward
             logits_BLV = self.var(label_B, x_BLCv_wo_first_l)
             loss = self.train_loss(logits_BLV.view(-1, V), gt_BL.view(-1)).view(B, -1)
             if prog_si >= 0:  # in progressive training
